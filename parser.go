@@ -56,18 +56,17 @@ type Parser struct {
 //
 // Examples
 //
-//  // Standard parser without descriptors
-//  specParser := NewParser(Minute | Hour | Dom | Month | Dow)
-//  sched, err := specParser.Parse("0 0 15 */3 *")
+//	// Standard parser without descriptors
+//	specParser := NewParser(Minute | Hour | Dom | Month | Dow)
+//	sched, err := specParser.Parse("0 0 15 */3 *")
 //
-//  // Same as above, just excludes time fields
-//  specParser := NewParser(Dom | Month | Dow)
-//  sched, err := specParser.Parse("15 */3 *")
+//	// Same as above, just excludes time fields
+//	specParser := NewParser(Dom | Month | Dow)
+//	sched, err := specParser.Parse("15 */3 *")
 //
-//  // Same as above, just makes Dow optional
-//  specParser := NewParser(Dom | Month | DowOptional)
-//  sched, err := specParser.Parse("15 */3")
-//
+//	// Same as above, just makes Dow optional
+//	specParser := NewParser(Dom | Month | DowOptional)
+//	sched, err := specParser.Parse("15 */3")
 func NewParser(options ParseOption) Parser {
 	optionals := 0
 	if options&DowOptional > 0 {
@@ -247,7 +246,9 @@ func getField(field string, r bounds) (uint64, error) {
 }
 
 // getRange returns the bits indicated by the given expression:
-//   number | number "-" number [ "/" number ]
+//
+//	number | number "-" number [ "/" number ]
+//
 // or error parsing range.
 func getRange(expr string, r bounds) (uint64, error) {
 	var (
@@ -301,6 +302,12 @@ func getRange(expr string, r bounds) (uint64, error) {
 		return 0, fmt.Errorf("too many slashes: %s", expr)
 	}
 
+	// Special handling for "L" (last day of month) which is represented as 32
+	if start == 32 || end == 32 {
+		// For "L", we set a specific bit (bit 32) that will be handled specially in the SpecSchedule.Next method
+		return 1 << 32, nil
+	}
+
 	if start < r.min {
 		return 0, fmt.Errorf("beginning of range (%d) below minimum (%d): %s", start, r.min, expr)
 	}
@@ -328,7 +335,15 @@ func parseIntOrName(expr string, names map[string]uint) (uint, error) {
 }
 
 // mustParseInt parses the given expression as an int or returns an error.
+// Special case: "L" is allowed for the day of month field and represents the last day of the month
 func mustParseInt(expr string) (uint, error) {
+	// Special case for "L" in the day of month field (represents the last day of the month)
+	if expr == "L" {
+		// We'll use 32 as a special value to represent the last day of month
+		// This works because valid days are 1-31, and we can use 32 as a special flag
+		return 32, nil
+	}
+
 	num, err := strconv.Atoi(expr)
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse int from %s: %s", expr, err)

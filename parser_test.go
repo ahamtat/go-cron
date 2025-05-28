@@ -31,6 +31,9 @@ func TestRange(t *testing.T) {
 
 		{"*", 1, 3, 1<<1 | 1<<2 | 1<<3 | starBit, ""},
 		{"*/2", 1, 3, 1<<1 | 1<<3, ""},
+		
+		// Test for L character (last day of month)
+		{"L", 1, 31, 1 << 32, ""},
 
 		{"5--5", 0, 0, zero, "too many hyphens"},
 		{"jan-x", 0, 0, zero, "failed to parse int from"},
@@ -379,5 +382,142 @@ func annual(loc *time.Location) *SpecSchedule {
 		Month:    1 << months.min,
 		Dow:      all(dow),
 		Location: loc,
+	}
+}
+
+// TestLastDayOfMonth tests the "L" character in the day of month field
+func TestLastDayOfMonth(t *testing.T) {
+	// Create a parser that includes the day of month field
+	parser := NewParser(Minute | Hour | Dom | Month | Dow)
+	
+	// Parse a schedule with "L" in the day of month field
+	schedule, err := parser.Parse("0 0 L * *")
+	if err != nil {
+		t.Fatalf("Failed to parse schedule with L in day of month: %v", err)
+	}
+	
+	// Test for different months with varying last days
+	testCases := []struct {
+		name     string
+		input    time.Time
+		expected time.Time
+	}{
+		{
+			name:     "January - 31 days",
+			input:    time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC),
+			expected: time.Date(2025, time.January, 31, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name:     "February non-leap - 28 days",
+			input:    time.Date(2025, time.February, 1, 0, 0, 0, 0, time.UTC),
+			expected: time.Date(2025, time.February, 28, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name:     "February leap - 29 days",
+			input:    time.Date(2024, time.February, 1, 0, 0, 0, 0, time.UTC),
+			expected: time.Date(2024, time.February, 29, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name:     "April - 30 days",
+			input:    time.Date(2025, time.April, 1, 0, 0, 0, 0, time.UTC),
+			expected: time.Date(2025, time.April, 30, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name:     "Already on last day",
+			input:    time.Date(2025, time.March, 31, 0, 0, 0, 0, time.UTC),
+			expected: time.Date(2025, time.April, 30, 0, 0, 0, 0, time.UTC),
+		},
+	}
+	
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			next := schedule.Next(tc.input)
+			if !next.Equal(tc.expected) {
+				t.Errorf("Expected %v, got %v", tc.expected, next)
+			}
+		})
+	}
+}
+
+// TestParseLastDayOfMonth tests parsing various expressions with the "L" character
+func TestParseLastDayOfMonth(t *testing.T) {
+	// Test cases for parsing expressions with "L"
+	testCases := []struct {
+		name     string
+		expr     string
+		parser   Parser
+		expectErr bool
+	}{
+		{
+			name:     "Standard L in day of month",
+			expr:     "0 0 L * *",
+			parser:   NewParser(Minute | Hour | Dom | Month | Dow),
+			expectErr: false,
+		},
+		{
+			name:     "L with seconds field",
+			expr:     "0 0 0 L * *",
+			parser:   NewParser(Second | Minute | Hour | Dom | Month | Dow),
+			expectErr: false,
+		},
+		{
+			name:     "L with specific hour and minute",
+			expr:     "15 23 L * *",
+			parser:   NewParser(Minute | Hour | Dom | Month | Dow),
+			expectErr: false,
+		},
+		{
+			name:     "L with specific month",
+			expr:     "0 0 L 2 *",
+			parser:   NewParser(Minute | Hour | Dom | Month | Dow),
+			expectErr: false,
+		},
+		{
+			name:     "L with specific day of week",
+			expr:     "0 0 L * MON",
+			parser:   NewParser(Minute | Hour | Dom | Month | Dow),
+			expectErr: false,
+		},
+		{
+			name:     "L with descriptor",
+			expr:     "0 0 L * * 2025", // Invalid format with year
+			parser:   NewParser(Minute | Hour | Dom | Month | Dow),
+			expectErr: true,
+		},
+	}
+	
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tc.parser.Parse(tc.expr)
+			if tc.expectErr && err == nil {
+				t.Errorf("Expected error parsing %q but got none", tc.expr)
+			} else if !tc.expectErr && err != nil {
+				t.Errorf("Did not expect error parsing %q but got: %v", tc.expr, err)
+			}
+		})
+	}
+	
+	// Test that the parsed schedule has the correct bit set
+	parser := NewParser(Minute | Hour | Dom | Month | Dow)
+	schedule, err := parser.Parse("0 0 L * *")
+	if err != nil {
+		t.Fatalf("Failed to parse schedule with L in day of month: %v", err)
+	}
+	
+	// Check that bit 32 is set in the Dom field
+	specSchedule, ok := schedule.(*SpecSchedule)
+	if !ok {
+		t.Fatalf("Expected *SpecSchedule, got %T", schedule)
+	}
+	
+	// The L bit should be set (bit 32)
+	if specSchedule.Dom&(1<<32) == 0 {
+		t.Errorf("Expected bit 32 (L bit) to be set in Dom field, but it wasn't")
+	}
+	
+	// Verify no other bits are set in the Dom field except the L bit
+	domBitsWithoutL := specSchedule.Dom & ^uint64(1<<32)
+	if domBitsWithoutL != 0 {
+		t.Errorf("Expected only bit 32 to be set in Dom field, but found other bits: %064b", domBitsWithoutL)
 	}
 }

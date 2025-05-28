@@ -181,6 +181,18 @@ func dayMatches(s *SpecSchedule, t time.Time) bool {
 		domMatch bool = 1<<uint(t.Day())&s.Dom > 0
 		dowMatch bool = 1<<uint(t.Weekday())&s.Dow > 0
 	)
+
+	// Check for the special "L" bit (bit 32) for the last day of month
+	if s.Dom&(1<<32) > 0 {
+		// Check if this is the last day of the month
+		currentMonth := t.Month()
+		currentYear := t.Year()
+		lastDay := time.Date(currentYear, currentMonth+1, 0, 0, 0, 0, 0, t.Location()).Day()
+		if t.Day() == lastDay {
+			domMatch = true
+		}
+	}
+
 	if s.Dom&starBit > 0 || s.Dow&starBit > 0 {
 		return domMatch && dowMatch
 	}
